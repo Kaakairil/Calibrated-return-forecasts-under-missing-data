@@ -92,6 +92,9 @@ calibmiss/
 │   ├── metrics.py               # Brier, ECE, reliability diagrams, AUC
 │   ├── models.py                # Model wrappers (LR, LightGBM)
 │   ├── pipeline.py              # Orchestration: run one config
+│   ├── artifacts.py             # Save/load fitted artifact sets (joblib + manifest)
+│   ├── serve.py                 # Real-time: next-day forecasts, prediction log
+│   ├── refit.py                 # Refit policy, artifact fitting, drift reports
 │   └── run_experiment.py        # CLI entry for single config
 ├── tests/
 │   ├── __init__.py
@@ -185,6 +188,16 @@ download_ohlcv(tickers, start, end) -> pd.DataFrame
     # Uses yfinance with retries, rate limiting
     # Concatenates into MultiIndex DataFrame
     # Saves parquet with timestamp + SHA256 in filename
+
+download_incremental(tickers, start, end, cache_dir="data/raw", fetch=None)
+    -> pd.DataFrame
+    # Live ingest: finds a usable cached parquet, fetches ONLY the
+    # (last_date, end] tail through the `fetch` callable, merges, validates,
+    # writes a new SHA256 cache file, deletes the old one.
+    # Falls back to a full download when no usable cache exists.
+    # `_usable_cache` scans cache files by content (SHA verify, ticker
+    # coverage, start coverage) rather than by exact key match, so extending
+    # `end` still finds the cache.
 
 validate_ohlcv(df) -> ValidationReport
     # Checks: no duplicate (ticker, date), prices > 0, volume >= 0
@@ -330,14 +343,43 @@ class WalkForwardSplitter:
   ```
 - Interpretation: P(missing | volume_ratio > Q0.7) = max_prob, else base_prob
 - Average missing rate calibrated to match target `p`
+- **Split-safe threshold:** `inject_mar` accepts a `depends_on_threshold`
+  kwarg. The pipeline computes the quantile threshold from the TRAINING split
+  once and passes it to the cal/test `inject_mar` calls, so test-time
+  missingness does not depend on the test set's own distribution (leakage-
+  adjacent behaviour avoided).
+
+**MCAR-BLOCK-MARKET (market-wide correlated outages):**
+- A vendor outage or exchange halt makes whole days missing for every ticker at
+  once — something per-ticker-independent streak blocks cannot represent.
+- Models the correlated component alone (`inject_mcar_block_market`): on an
+  outage day, every column of every ticker is missing. Independent per-ticker
+  streaks remain covered by `inject_mcar_block`.
+- Start probability is calibrated as for MCAR-BLOCK; uses best-so-far tracking
+  because the block structure makes achievable rates discrete and the
+  multiplicative update can oscillate around the target.
+
+**MNAR (Not Missing At Random):**
+- Missing probability depends on the value that is itself missing: the
+  probability that `target_feature` is missing increases with that feature's
+  own value (e.g. high-volatility days have their volatility missing more
+  often).
+- `inject_mnar(X, rate, seed, target_feature, quantile_threshold=0.7,
+  base_prob=0.05, max_prob=0.5)` — mirrors MAR but with `depends_on == target`;
+  only `target_feature` is masked, and base/max probabilities are calibrated
+  so the realized rate matches `rate`.
 
 **Functions:**
 ```python
 def inject_mcar(X, rate, seed) -> tuple[X_missing, realized]
 def inject_mcar_block(X, rate, seed, max_block=10, tol=0.005, max_iter=20)
         -> tuple[X_missing, realized]
+def inject_mcar_block_market(X, rate, seed, max_block=10, tol=0.005, max_iter=20)
+        -> tuple[X_missing, realized]   # market-wide correlated outages
 def inject_mar(X, rule, target_rate, seed, depends_on_threshold=None)
         -> tuple[X_missing, realized]
+def inject_mnar(X, rate, seed, target_feature, quantile_threshold=0.7,
+        base_prob=0.05, max_prob=0.5) -> tuple[X_missing, realized]
 def simulate_missingness_grid(X, mechanisms, rates, seeds, mar_rules)
         -> results[mechanism][rate][seed]
 ```
@@ -354,6 +396,7 @@ def simulate_missingness_grid(X, mechanisms, rates, seeds, mar_rules)
 - MCAR-BLOCK: every missing cell has a missing neighbour (no isolated cells)
 - MCAR-BLOCK: realized row-rate ≈ target (calibrated)
 - MAR: missing rate higher when depends_on > threshold
+- MAR: pre-computed threshold path honored
 - Grid: dispatches each mechanism to the right injector
 
 ---
@@ -659,6 +702,144 @@ def main():
 
 ---
 
+### 4.14 Artifacts Module (`src/calibmiss/artifacts.py`)
+
+**Responsibility:** Serialize and reload the fitted pipeline (imputer, model,
+calibrator, optional scaler) so the live system does not re-train on every run.
+
+**Functions:**
+```python
+save_artifacts(artifacts: dict[str, Any], path: Path, manifest: dict[str, Any])
+    -> Path
+    # Writes each fitted object as {name}.joblib plus manifest.json
+    # (artifact list, config snapshot, run timestamp, fit window).
+    # Rejects path existing as a non-directory.
+
+load_artifacts(path: Path, expected_experiment: str | None = None)
+    -> dict[str, Any]
+    # Loads every artifact named in manifest.json; raises if a file is missing.
+    # With expected_experiment set, verifies
+    # manifest[config][experiment_file] matches before loading — a guard
+    # against using artifacts trained on a different experiment config.
+```
+
+**Storage format:** `<dir>/{imputer,model,calibrator[,scaler]}.joblib` +
+`manifest.json`. `saved_at_utc` is set automatically if absent.
+
+---
+
+### 4.15 Serving Module (`src/calibmiss/serve.py`)
+
+**Responsibility:** The real-time entry point — turn the latest available data
+into next-day up-probabilities with the same point-in-time logic as the batch
+pipeline.
+
+**Daily Flow:**
+1. Append only-new rows to the cached OHLCV frame (`append_latest_rows`).
+2. Recompute point-in-time features for the newest row of each ticker
+   (`latest_features`).
+3. Apply the fitted imputer → (scaler) → model → calibrator
+   (`forecast_next_day`).
+4. Write a dated prediction log and `latest_signal.csv` (`run_daily`).
+
+**Functions:**
+```python
+latest_features(raw, ticker, zero_volume_policy="keep") -> pd.DataFrame
+    # Point-in-time features for the single newest row; recomputes on the
+    # ticker's full history so rolling windows match the batch pipeline, then
+    # returns only the last row with complete features.
+
+append_latest_rows(raw, new) -> pd.DataFrame
+    # Concatenate, de-duplicate (ticker, date) newest-wins, sort.
+
+forecast_next_day(artifacts, raw, new_rows=None, tickers=None,
+                  zero_volume_policy="keep") -> pd.DataFrame
+    # Columns: ticker, date, p_raw, p_cal. Requires artifact keys
+    # imputer/model/calibrator; optional scaler applied if present.
+    # With new_rows given, only those (ticker, date)s are forecast.
+
+record_observations(log_path, observations) -> None
+    # Back-fill realized outcomes (y_observed) matched by (ticker, date)
+    # into the prediction log — what makes drift monitoring possible.
+
+run_daily(artifacts, raw, merged, log_dir="predictions", tickers=None,
+          zero_volume_policy="keep") -> pd.DataFrame
+    # Forecasts the newest row of each ticker and persists:
+    #   predictions/latest_signal.csv : ticker, date, p_raw, p_cal
+    #   predictions/predictions.csv   : append-only log with timestamp_utc,
+    #                                   ticker, date, p_raw, p_cal,
+    #                                   y_observed (NaN until back-filled)
+```
+
+**Zero-volume handling:** `zero_volume_policy="drop"` excludes halted
+(`volume == 0`) rows before feature computation; `"keep"` (research default)
+retains them. Wired through from `config.universe.zero_volume_policy`.
+
+---
+
+### 4.16 Refit Module (`src/calibmiss/refit.py`)
+
+**Responsibility:** Decide *when* each artifact is due for a retrain (date and
+row-count policy), re-fit through the same point-in-time code as the batch
+pipeline, log every refit to an audit trail, and produce a rolling drift report
+so stale calibration is caught rather than silently degrading.
+
+**Policy:**
+```python
+@dataclass(frozen=True)
+class RefitPolicy:
+    artifact: str            # "model", "calibrator", "imputer", ...
+    interval_days: int = 30  # refit at most every N days (wall clock)
+    max_rows: int | None     # also refit on N new rows
+
+should_refit(last_fit_at, policy, rows_since=0, now=None) -> bool
+    # Due if never fit, interval_days elapsed, or rows_since >= max_rows.
+```
+
+**Functions:**
+```python
+fit_pipeline_artifacts(X, y, model="logistic_regression", imputer="median",
+    calibrator="platt", model_params=None, imputer_params=None,
+    calibrator_params=None, cal_frac=0.2) -> {"imputer","model","calibrator"}
+    # Sorts, drops NaN/invalid rows, holds out the most recent cal_frac as the
+    # calibration split, fits imputer->model->calibrator point-in-time
+    # (calibrator sees predictions from a model that never saw those rows).
+
+refit_on_schedule(policies, last_fit, rows_since, now, events_path, refit_func,
+    config_fingerprint=None) -> list[dict]
+    # For each due policy calls refit_func, advances last_fit[artifact] = now
+    # (so re-runs don't refit), and appends a row to refit_events.csv:
+    #   timestamp_utc, artifact, window_start, window_end, n_rows,
+    #   config_fingerprint
+
+drift_report(prediction_log, window_days=90, output_dir="reports", asof=None)
+    -> Path
+    # Computes base rate, mean_p_cal, and 10-bin ECE over observed rows in the
+    # trailing window; writes reports/drift_YYYY-MM-DD.md with a canned
+    # interpretation (too few rows / miscalibrated / healthy).
+```
+
+---
+
+### 4.17 Results-Config Verification (`verify_results_config`)
+
+**Responsibility:** Machine-checkable guard against the stale-results bug found
+in the audit, where committed `results/metrics.csv` no longer matched the
+config that produced it.
+
+**Implementation:**
+- `write_run_metadata(..., config=cfg, experiment_file=...)` now records a
+  `config_snapshot` (from `config.model_dump_json()`) and `grid_dimensions`
+  (models/imputers/calibrators/mechanisms/rates/seeds + counts +
+  `experiment_file` + `target`) into `run_metadata.json`.
+- `verify_results_config()` compares the experiment-row columns of
+  `results/metrics.csv` against the recorded `grid_dimensions` and returns a
+  list of mismatches (e.g. `"imputer: grid records [...] but metrics.csv has
+  no ..."`); `scripts/verify_results_config.py` prints them and exits 1.
+- `make verify-results` runs it; CI-style failure when the results drift.
+
+---
+
 ## 5. Data Flow Summary
 
 ```
@@ -726,6 +907,10 @@ def main():
 | `test_figures.py` | Figures | All 5 figures generated |
 | `test_report.py` | Reports | Files exist |
 | `test_e2e.py` | Integration | Minimal pipeline runs |
+| `test_data_incremental.py` | Incremental ingest | Tail-only fetch, merge, cache reuse |
+| `test_refit.py` | Refit | Due logic, event log, artifact fitting, drift report |
+| `test_features_policy.py` | Zero-volume | Drop/keep policy applied before features |
+| `test_run_metadata.py` | Config integrity | Snapshot, grid dims, verification |
 
 **Quality Gates (run before commit):**
 1. `pytest -v` - All tests pass
@@ -866,3 +1051,5 @@ Each task depends on the previous task's interfaces. This documentation defines 
 ---
 
 *This documentation serves as the single source of truth for all component specifications. All implementation tasks should reference this document for interfaces, invariants, and expected behavior.*
+
+*Note: this living document tracks the current implementation. The audit-driven real-time preparation plan (incremental ingest, refit/drift, zero-volume policy, config-integrity guard) is captured in `docs/REAL_TIME_PREPARATION.md`; the serving/refit/artifacts sections above (§4.14–4.17) describe the shipped modules.*
