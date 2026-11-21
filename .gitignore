@@ -2,6 +2,8 @@
 data/raw/
 data/processed/
 results/metrics.csv
+predictions/
+artifacts/
 
 # Python
 __pycache__/
