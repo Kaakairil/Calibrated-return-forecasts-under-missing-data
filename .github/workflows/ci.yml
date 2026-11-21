@@ -30,7 +30,8 @@ jobs:
       # synthetic data and forecast one row. Exercises artifacts/serve/refit
       # without any yfinance network call.
       - name: Offline serve smoke test
-        run: python -c "
+        run: |
+          python - <<'EOF'
           import numpy as np, pandas as pd, tempfile
           from pathlib import Path
           from calibmiss.artifacts import save_artifacts
@@ -56,4 +57,4 @@ jobs:
           assert fc['p_cal'].between(0, 1).all()
           run_daily(artifacts, raw, raw, log_dir=Path(tempfile.mkdtemp()) / 'pred')
           print('serve smoke test OK')
-        "
+          EOF
