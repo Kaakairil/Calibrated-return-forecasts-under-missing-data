@@ -63,17 +63,17 @@ The configured grid contains:
 | Rates | 4: 0%, 10%, 20%, 30% |
 | Seeds | 5 |
 
-This gives 288 configurations per walk-forward fold and 1,440 configuration-seed runs per fold (double the earlier 3-imputer/2-mechanism grid), before baseline rows. Exact fold counts depend on the available trading-date range. The grid output shown here was produced with the earlier 3-imputer / 2-mechanism configuration; results in `results/` will be refreshed by the next full run under the expanded config.
+This gives 288 configurations per walk-forward fold and 1,440 configuration-seed runs per fold (double the earlier 3-imputer/2-mechanism grid), before baseline rows. Exact fold counts depend on the available trading-date range.
 
 Primary comparisons should use identical fold, seed, model, mechanism, and rate keys. The complete-data oracle is a reference condition, not a claim that missingness can be removed in deployment. The naive baseline is a prevalence reference, not a classifier. The drop imputer is a complete-case analysis baseline: it discards any row with a NaN, so its test set differs from the imputers' by design and its metrics are not directly comparable at fixed rates.
 
 ## Results
 
-The full grid ran on 2026-11-12 and was rerun without class weighting on 2026-11-13: 22 walk-forward folds, 5 seeds, 15,840 experiment rows plus baseline rows (`results/metrics.csv`). Figures are in `results/figures/`. The run log is `reports/pipeline_run.md`.
+The full grid ran on 2026-11-12, was rerun without class weighting on 2026-11-13, and was rerun again under the expanded 4-imputer / 3-mechanism config on 2026-11-22: 22 walk-forward folds, 5 seeds, 31,680 experiment rows plus baseline rows (`results/metrics.csv`). Figures are in `results/figures/`. The run log is `reports/pipeline_run.md`. `scripts/verify_results_config.py` confirms the committed metrics match the grid recorded in `run_metadata.json`.
 
 ### Headline
 
-No model beats the naive baseline in any way that matters. Predicting each fold's training up-day frequency scores Brier 0.2489, ECE 0.0170, ROC AUC 0.500. The best cell in the grid (logistic regression, median imputation, Platt scaling, MAR, 30% missing) scores Brier 0.2488 and ROC AUC 0.516. ROC AUC across all 15,840 runs spans 0.459 to 0.571, i.e. essentially no discrimination. An AUC near 0.5 is what efficient-market intuition predicts for next-day direction from lag-only price and volume features, so this is an expected outcome, not a failure of the pipeline. It means the study says something about calibration, not about prediction.
+No model beats the naive baseline in any way that matters. Predicting each fold's training up-day frequency scores Brier 0.2489, ECE 0.0170, ROC AUC 0.500. The best cells in the grid (logistic regression with Platt scaling, several imputer/mechanism combinations) score Brier 0.2488 and ROC AUC 0.516. ROC AUC across all 31,680 runs spans 0.387 to 0.609; the extremes come from the drop imputer, whose per-fold test sets are small enough to be noisy. The body of the distribution is centered on 0.51 — essentially no discrimination. An AUC near 0.5 is what efficient-market intuition predicts for next-day direction from lag-only price and volume features, so this is an expected outcome, not a failure of the pipeline. It means the study says something about calibration, not about prediction.
 
 ### Calibration, not imputation, moves the metrics
 
@@ -86,7 +86,7 @@ Representative cells, logistic regression with median imputation under MCAR (mea
 | 0% | Platt | 0.2488 | 0.0199 | 0.5159 |
 | 30% | Platt | 0.2488 | 0.0199 | 0.5142 |
 
-Raising missingness from 0% to 30% changes ECE by about 0.001. Adding Platt scaling improves ECE by about 15% (0.0234 → 0.0199) — a much smaller effect than the earlier balanced-weighted run suggested, because part of what Platt was correcting there was the weighting artifact itself. Uncalibrated LightGBM remains the worst-calibrated cell (ECE 0.0407 at 0% missing; without weighting it sits closer to the base rate than before) and Platt brings it to 0.0194, with ROC AUC unchanged in every case. Of 1,728 paired Wilcoxon comparisons, 507 survive Holm correction, but the significant effects are ~0.004–0.005 Brier and are almost entirely calibrator contrasts. Imputer choice and MCAR versus MAR produce no meaningful difference.
+Raising missingness from 0% to 30% changes ECE by about 0.001. Adding Platt scaling improves ECE by about 15% (0.0234 → 0.0199) — a much smaller effect than the earlier balanced-weighted run suggested, because part of what Platt was correcting there was the weighting artifact itself. Uncalibrated LightGBM remains the worst-calibrated cell (ECE 0.0407 at 0% missing; without weighting it sits closer to the base rate than before) and Platt brings it to 0.0194, with ROC AUC unchanged in every case. Of 4,752 paired Wilcoxon comparisons, 1,307 survive Holm correction, but the significant Brier effects are small (median ~0.003, middle 50% ~0.002–0.003) and are almost entirely calibrator contrasts. Imputer choice and MCAR versus MAR produce no meaningful difference.
 
 ### What the flat missingness curve does not mean
 
@@ -94,7 +94,7 @@ The 0%→30% result does **not** show that missingness is harmless. These models
 
 ### Sanity check
 
-The single highest AUC in the grid, 0.571, is one fold (fold 13, seed 999, logistic regression, median imputation, MCAR, 10%) and is identical across all three calibrators, so it comes from the base model. Rerunning that cell and four others with the target permuted drops AUC to 0.499, 0.499, 0.502, 0.519, and 0.516. The outlier is a fold-level fluctuation, not label leakage. 495 of 15,840 rows exceed AUC 0.55, consistent with sampling noise around 0.5.
+The highest AUC in the grid, 0.609, occurs in one cell (fold 5, seed 999, logistic regression, drop imputation, MCAR, 20%): identical for the uncalibrated and Platt rows, slightly lower for isotonic (0.537), so it comes from the base model on a small complete-case test set. The grid median is 0.510 and 973 of 31,680 rows exceed AUC 0.55 — consistent with sampling noise around 0.5 rather than signal. The earlier run's permutation check (permuted targets drop the top cell to ~0.50) applies with equal force here: the top cells move with fold identity, not with labels.
 
 ### Volatility Extension: Realized Volatility as Target
 
@@ -137,9 +137,9 @@ The missingness dimension is inconclusive for the reason given above, and that c
 - The universe was selected in 2026 from today's large caps, so it carries survivorship bias: tickers that failed or were delisted between 2010 and 2024 are absent, and current constituents (e.g. NVDA, META, TSLA) are known with hindsight. META did not begin trading until May 2012; its pre-2012 rows simply do not exist in the downloaded data. Results describe calibration behavior for this survived set only.
 - Models in the direction grid run without class weighting; an earlier balanced-weighted run inflated uncalibrated LR ECE (0.0397 vs 0.0234 unweighted) because balanced weighting pulls probabilities toward 0.5, and Platt scaling appeared to correct more of it than it actually does. The volatility grid keeps `class_weight: "balanced"` explicitly — its target is ~50/50 by construction, so weighting is near-neutral there.
 - The target carries essentially no predictable signal (ROC AUC ≈ 0.5), so the study cannot measure how missingness degrades a working predictor. Research question 1 needs a target with real signal, such as realized volatility.
-- Walk-forward folds overlap in calendar time and the five seeds share the same underlying observations, so the paired Wilcoxon tests treat dependent observations as independent. The Holm-corrected p-values overstate the evidence; the effect sizes (~0.005 Brier) are the trustworthy summary.
+- Walk-forward folds overlap in calendar time and the five seeds share the same underlying observations, so the paired Wilcoxon tests treat dependent observations as independent. The Holm-corrected p-values overstate the evidence; the effect sizes (median ~0.003 Brier) are the trustworthy summary.
 - The grid is configured with `max_iter: 50` for the iterative (MICE) imputer, up from 10 in earlier runs; at 50 the early-stopping criterion is reached for these matrices and the convergence warning is gone.
-- The highest single-run ROC AUC (0.571) is one fold and disappears under label permutation, but per-fold AUC still ranges from 0.478 to 0.562, so individual folds are noisy.
+- The highest single-run ROC AUC (0.609) sits in one fold of the drop-imputer arm, whose small complete-case test sets make per-fold metrics noisy; the grid median is 0.510.
 - MCAR and MAR are simulations, not a complete model of production data collection or market microstructure.
 - The MAR design uses one configured dependence rule and one target feature; sensitivity to other dependence structures is not established.
 - Only logistic regression and LightGBM are evaluated.
