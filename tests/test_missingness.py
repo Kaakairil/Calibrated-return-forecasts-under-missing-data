@@ -7,6 +7,8 @@ from calibmiss.missingness import (
     inject_mar,
     inject_mcar,
     inject_mcar_block,
+    inject_mcar_block_market,
+    inject_mnar,
     simulate_missingness_grid,
 )
 
@@ -225,6 +227,79 @@ class TestMAR:
         assert X_missing["feature_a"].isna().any()
         assert not X_missing["feature_b"].isna().any()
         assert not X_missing["feature_c"].isna().any()
+
+
+class TestMNAR:
+    """Tests for MNAR (missingness depends on the missing value itself)."""
+
+    def test_mnar_missing_rate_higher_for_extreme_target_values(self) -> None:
+        """Rows with extreme target values must be missing more often."""
+        rng = np.random.RandomState(42)
+        X = pd.DataFrame({"volatility_20d": rng.lognormal(0, 0.5, 20_000)})
+        X_missing, _ = inject_mnar(X, rate=0.2, seed=1, target_feature="volatility_20d")
+        miss = X_missing["volatility_20d"].isna()
+        extreme = X["volatility_20d"] > X["volatility_20d"].quantile(0.8)
+        assert miss[extreme].mean() > miss[~extreme].mean()
+
+    def test_mnar_target_rate_achieved_and_other_cols_untouched(self) -> None:
+        X = pd.DataFrame(
+            {
+                "volatility_20d": np.random.lognormal(0, 0.5, 10_000),
+                "volume_ratio": np.random.rand(10_000),
+            }
+        )
+        for rate in (0.1, 0.2, 0.3):
+            X_missing, realized = inject_mnar(X, rate=rate, seed=3, target_feature="volatility_20d")
+            assert abs(realized["volatility_20d"] - rate) < 0.03
+            assert not X_missing["volume_ratio"].isna().any()
+
+    def test_mnar_reproducible(self) -> None:
+        X = pd.DataFrame({"a": np.random.randn(2000)})
+        X1, _ = inject_mnar(X, 0.2, 7, "a")
+        X2, _ = inject_mnar(X, 0.2, 7, "a")
+        pd.testing.assert_frame_equal(X1, X2)
+
+    def test_mnar_requires_target_feature(self) -> None:
+        import pytest
+
+        X = pd.DataFrame({"a": np.random.randn(50)})
+        with pytest.raises(ValueError, match="target_feature"):
+            inject_mnar(X, 0.2, 1, target_feature="missing_col")
+
+
+class TestMarketCorrelatedBlock:
+    """Market-wide outage days: all tickers missing the same day."""
+
+    def test_market_days_shared_across_tickers(self) -> None:
+        """On a market outage day every ticker must be fully missing."""
+        X = _ticker_frame(n_ticks=6, n_days=300)
+        X_missing, _ = inject_mcar_block_market(X, rate=0.1, seed=11)
+        n_tickers = X.index.get_level_values("ticker").nunique()
+        per_day_missing = X_missing.isna().any(axis=1).groupby(level="date").sum()
+        # At 10% target there must be at least one day where ALL tickers are
+        # missing (a shared outage day), yet some days only part of the
+        # cross-section is missing (per-ticker streaks).
+        assert (per_day_missing == n_tickers).sum() >= 1
+        assert (0 < per_day_missing).sum() >= 1
+        assert (per_day_missing < n_tickers).any()
+
+    def test_market_block_row_rate_approximates_target(self) -> None:
+        X = _ticker_frame(n_ticks=6, n_days=300)
+        X_missing, _ = inject_mcar_block_market(X, rate=0.1, seed=11)
+        assert abs(X_missing.isna().mean().mean() - 0.1) < 0.05
+
+    def test_market_block_reproducible(self) -> None:
+        X = _ticker_frame(n_ticks=4, n_days=200)
+        X1, _ = inject_mcar_block_market(X, 0.1, 5)
+        X2, _ = inject_mcar_block_market(X, 0.1, 5)
+        pd.testing.assert_frame_equal(X1, X2)
+
+    def test_market_block_requires_ticker(self) -> None:
+        import pytest
+
+        X = pd.DataFrame(np.random.randn(50, 3))
+        with pytest.raises(ValueError):
+            inject_mcar_block_market(X, 0.1, 1)
 
 
 class TestMissingnessGrid:

@@ -1,4 +1,4 @@
-.PHONY: all setup data features experiment experiment-volatility figures report pdf clean clean-all test lint typecheck
+.PHONY: all setup data features experiment experiment-volatility figures report pdf verify-results clean clean-all test lint typecheck
 
 # Full pipeline. PDF is a separate target: it needs pandoc and weasyprint,
 # which are not Python dependencies, and `make pdf` fails if they are absent.
@@ -29,6 +29,10 @@ experiment-volatility:
 # Figures for the volatility grid
 figures-volatility:
 	python scripts/generate_figures.py --metrics results/volatility/metrics.csv --output-dir results/volatility/figures
+
+# Verify committed results still match the config that produced them
+verify-results:
+	python scripts/verify_results_config.py
 
 # Generate figures from results
 figures:

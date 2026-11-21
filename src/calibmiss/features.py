@@ -3,8 +3,21 @@
 import numpy as np
 import pandas as pd
 
+FEATURE_COLS = [
+    "return_1d",
+    "return_5d",
+    "return_20d",
+    "volatility_5d",
+    "volatility_20d",
+    "volume_ratio",
+    "hl_range",
+    "price_vs_ma50",
+]
 
-def compute_features(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+
+def compute_features(
+    raw: pd.DataFrame, zero_volume_policy: str = "keep"
+) -> tuple[pd.DataFrame, pd.Series]:
     """Compute features and target from raw OHLCV data.
 
     All features use only data up to day t (no lookahead).
@@ -14,12 +27,20 @@ def compute_features(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     Args:
         raw: DataFrame with MultiIndex (ticker, date) and columns:
             open, high, low, close, adj_close, volume
+        zero_volume_policy: "drop" removes rows with ``volume == 0`` (halted /
+            no-trade days) before feature computation; "keep" preserves them.
 
     Returns:
         Tuple of (features DataFrame, target Series) with same MultiIndex
     """
+    if zero_volume_policy not in ("drop", "keep"):
+        raise ValueError(
+            f"zero_volume_policy must be 'drop' or 'keep', got {zero_volume_policy!r}"
+        )
     # Work chronologically per ticker without modifying original input.
     df = raw.copy().sort_index(level=["ticker", "date"])
+    if zero_volume_policy == "drop":
+        df = df[df["volume"] != 0]
 
     # Ensure we have the right columns
     required_cols = ["open", "high", "low", "close", "adj_close", "volume"]
@@ -53,17 +74,7 @@ def compute_features(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     df["price_vs_ma50"] = grouped["adj_close"].transform(lambda x: x / x.rolling(50).mean())
 
     # Select feature columns
-    feature_cols = [
-        "return_1d",
-        "return_5d",
-        "return_20d",
-        "volatility_5d",
-        "volatility_20d",
-        "volume_ratio",
-        "hl_range",
-        "price_vs_ma50",
-    ]
-    features = df[feature_cols].copy()
+    features = df[FEATURE_COLS].copy()
 
     # 6. Target: next-day return direction (binary)
     # 1 if next day's adj_close > current day's adj_close, 0 otherwise
@@ -84,7 +95,9 @@ def compute_features(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     return features, target
 
 
-def compute_volatility_target(raw: pd.DataFrame, horizon: int = 5) -> pd.Series:
+def compute_volatility_target(
+    raw: pd.DataFrame, horizon: int = 5, zero_volume_policy: str = "keep"
+) -> pd.Series:
     """Compute the annualized realized volatility over the next `horizon` trading days.
 
     For each ticker and day t: std (ddof=1) of the daily log returns of days
@@ -95,7 +108,7 @@ def compute_volatility_target(raw: pd.DataFrame, horizon: int = 5) -> pd.Series:
     """
     if horizon < 1:
         raise ValueError("horizon must be at least 1")
-    features, _ = compute_features(raw)
+    features, _ = compute_features(raw, zero_volume_policy=zero_volume_policy)
     df = raw.copy().sort_index(level=["ticker", "date"])
     df["return_1d"] = df.groupby(level="ticker")["adj_close"].transform(
         lambda x: np.log(x / x.shift(1))

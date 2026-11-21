@@ -33,3 +33,6 @@ universe:
   start_date: "2010-01-01"
   end_date: "2024-12-31"
   source: "yfinance"
+  # Live deployments should set "drop" so halted/no-trade days (volume == 0)
+  # are excluded before feature computation; research runs keep them.
+  zero_volume_policy: "keep"

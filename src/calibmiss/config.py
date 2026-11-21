@@ -14,6 +14,7 @@ class UniverseConfig(BaseModel):
     start_date: str
     end_date: str
     source: str = "yfinance"
+    zero_volume_policy: str = "keep"
 
 
 class ModelConfig(BaseModel):

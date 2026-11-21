@@ -343,8 +343,42 @@ def summarize_results(
     return summary, tests
 
 
-def write_run_metadata(download_date: str, path: str | Path = METADATA_PATH) -> None:
-    """Write download provenance and installed package versions."""
+def _grid_dimensions(cfg: Config, experiment_file: str) -> dict[str, Any]:
+    """Record the grid dimensions that a run was supposed to cover."""
+    mechanisms = list(cfg.experiment.missingness.mechanisms)
+    rates = list(cfg.experiment.missingness.rates)
+    seeds = list(cfg.experiment.missingness.seeds)
+    return {
+        "models": [model.name for model in cfg.experiment.models],
+        "imputers": [imputer.name for imputer in cfg.experiment.imputers],
+        "calibrators": [calibrator.name for calibrator in cfg.experiment.calibrators],
+        "mechanisms": mechanisms,
+        "rates": rates,
+        "seeds": seeds,
+        "n_mechanisms": len(mechanisms),
+        "n_rates": len(rates),
+        "n_seeds": len(seeds),
+        "experiment_file": experiment_file,
+        "target": cfg.experiment.target,
+    }
+
+
+def write_run_metadata(
+    download_date: str,
+    path: str | Path = METADATA_PATH,
+    config: Config | None = None,
+    experiment_file: str = "experiment.yaml",
+) -> None:
+    """Write download provenance, config snapshot and grid dimensions.
+
+    Args:
+        download_date: Date the raw data was downloaded.
+        path: Destination run_metadata.json.
+        config: Experiment config to snapshot. When given, the serialized
+            config and the grid dimensions are recorded so results can be
+            machine-checked against the config that produced them.
+        experiment_file: Name of the experiment YAML used for `config`.
+    """
     packages = [
         "numpy",
         "pandas",
@@ -365,11 +399,82 @@ def write_run_metadata(download_date: str, path: str | Path = METADATA_PATH) -> 
         "python_version": __import__("platform").python_version(),
         "packages": versions,
     }
+    if config is not None:
+        metadata["config_snapshot"] = json.loads(config.model_dump_json())
+        metadata["grid_dimensions"] = _grid_dimensions(config, experiment_file)
     output = Path(path)
     if not output.is_absolute():
         output = ROOT / output
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+
+def verify_results_config(
+    metrics_path: str | Path = METRICS_PATH,
+    metadata_path: str | Path = METADATA_PATH,
+) -> list[str]:
+    """Return a list of mismatches between results and the recorded grid.
+
+    The audit found that committed results were produced with an older config
+    than the one in the repository (staleness). This is the machine-checkable
+    guard: it compares the mechanism/imputer/model/calibrator columns actually
+    present in ``metrics.csv`` against the ``grid_dimensions`` recorded in
+    ``run_metadata.json`` and returns human-readable inconsistency lines.
+
+    Args:
+        metrics_path: Path to metrics.csv.
+        metadata_path: Path to run_metadata.json.
+
+    Returns:
+        List of mismatch descriptions; empty when results match the grid.
+    """
+    metrics_path = Path(metrics_path)
+    metadata_path = Path(metadata_path)
+    mismatches: list[str] = []
+    if not metrics_path.exists():
+        return [f"metrics file not found: {metrics_path}"]
+    if not metadata_path.exists():
+        return [f"metadata file not found: {metadata_path}"]
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        return [f"run_metadata.json is not valid JSON: {error}"]
+    dimensions = metadata.get("grid_dimensions")
+    if not dimensions:
+        return ["run_metadata.json has no grid_dimensions; results cannot be verified"]
+
+    metrics = pd.read_csv(metrics_path)
+    experiments = metrics[metrics["row_type"] == "experiment"] if "row_type" in metrics else metrics
+
+    def present(column: str) -> set[str]:
+        return {str(value) for value in experiments[column].dropna().unique()}
+
+    expected = {
+        "imputer": set(dimensions.get("imputers", [])),
+        "mechanism": set(dimensions.get("mechanisms", [])),
+        "model": set(dimensions.get("models", [])),
+        "calibrator": set(dimensions.get("calibrators", [])),
+    }
+    for column, wanted in expected.items():
+        if column not in experiments.columns:
+            mismatches.append(f"column '{column}' missing from metrics.csv")
+            continue
+        actual = present(column)
+        missing = sorted(wanted - actual)
+        if missing:
+            mismatches.append(
+                f"{column}: grid records {sorted(wanted)} but metrics.csv has no "
+                f"{', '.join(missing)}"
+            )
+    rates = dimensions.get("rates") or []
+    if "rate" in experiments.columns:
+        actual_rates = {round(float(value), 6) for value in experiments["rate"].dropna().unique()}
+        missing_rates = sorted(set(rates) - actual_rates)
+        if missing_rates:
+            mismatches.append(
+                f"rate: grid records {rates} but metrics.csv has no {missing_rates}"
+            )
+    return mismatches
 
 
 def _load_data(cfg: Config, volatility_target: bool = False) -> tuple[pd.DataFrame, pd.Series, str]:
@@ -380,11 +485,12 @@ def _load_data(cfg: Config, volatility_target: bool = False) -> tuple[pd.DataFra
         cfg.universe.end_date,
         cache_dir=raw_dir,
     )
-    X, _ = compute_features(raw)
+    policy = cfg.universe.zero_volume_policy
+    X, _ = compute_features(raw, zero_volume_policy=policy)
     if volatility_target:
-        y = compute_volatility_target(raw)
+        y = compute_volatility_target(raw, zero_volume_policy=policy)
     else:
-        _, y = compute_features(raw)
+        _, y = compute_features(raw, zero_volume_policy=policy)
     valid_rows = ~X.isna().any(axis=1) & X.index.isin(y.index)
     X = X[valid_rows]
     y = y.reindex(X.index)
@@ -406,16 +512,36 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--n-jobs", type=int, default=-1)
     parser.add_argument("--experiment-config", default="experiment.yaml")
     parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument(
+        "--verify-results",
+        action="store_true",
+        help="Check metrics.csv against the recorded grid dimensions and exit",
+    )
     args = parser.parse_args(argv)
 
     cfg = get_config(ROOT / "config", experiment_file=args.experiment_config)
     volatility_mode = cfg.experiment.target == "volatility"
     output_dir = args.output_dir or (RESULTS / "volatility" if volatility_mode else RESULTS)
+    if args.verify_results:
+        mismatches = verify_results_config(
+            output_dir / "metrics.csv", output_dir / "run_metadata.json"
+        )
+        if mismatches:
+            for line in mismatches:
+                print(f"INCONSISTENT: {line}")
+            raise SystemExit(1)
+        print("Results are consistent with the recorded grid dimensions.")
+        return
     X, y, download_date = _load_data(cfg, volatility_target=volatility_mode)
     dates = X.index.get_level_values("date").unique().sort_values()
     date_splits = get_split_indices(dates, cfg.experiment.splits.model_dump())
     splits = map_date_splits_to_rows(X, date_splits)
-    write_run_metadata(download_date, output_dir / "run_metadata.json")
+    write_run_metadata(
+        download_date,
+        output_dir / "run_metadata.json",
+        config=cfg,
+        experiment_file=args.experiment_config,
+    )
 
     if args.model is not None:
         model = next(item for item in cfg.experiment.models if item.name == args.model)

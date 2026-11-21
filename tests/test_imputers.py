@@ -2,7 +2,12 @@
 
 import numpy as np
 import pandas as pd
-from calibmiss.imputers import DropImputer, ForwardFillImputer, IterativeImputerWrapper, MedianImputer
+from calibmiss.imputers import (
+    DropImputer,
+    ForwardFillImputer,
+    IterativeImputerWrapper,
+    MedianImputer,
+)
 
 
 class TestForwardFillImputer:

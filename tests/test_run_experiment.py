@@ -271,7 +271,7 @@ def test_main_preserves_zero_rate_and_seed(monkeypatch) -> None:
     )
     monkeypatch.setattr("calibmiss.run_experiment.get_split_indices", lambda dates, config: splits)
     monkeypatch.setattr(
-        "calibmiss.run_experiment.write_run_metadata", lambda download_date, path=None: None
+        "calibmiss.run_experiment.write_run_metadata", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(
         "calibmiss.run_experiment.run_single_config",
@@ -299,7 +299,7 @@ def test_main_volatility_config_writes_to_separate_dir(tmp_path: Path, monkeypat
     )
     monkeypatch.setattr("calibmiss.run_experiment.get_split_indices", lambda dates, config: splits)
     monkeypatch.setattr(
-        "calibmiss.run_experiment.write_run_metadata", lambda download_date, path=None: None
+        "calibmiss.run_experiment.write_run_metadata", lambda *args, **kwargs: None
     )
 
     def fake_run_grid(X, y, splits, config, n_jobs, output_path, volatility_target=False):
