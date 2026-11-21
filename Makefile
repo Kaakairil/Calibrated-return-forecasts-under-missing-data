@@ -1,4 +1,4 @@
-.PHONY: all setup data features experiment experiment-volatility figures report pdf verify-results clean clean-all test lint typecheck
+.PHONY: all setup data features experiment experiment-volatility figures report pdf verify-results build-artifacts run-daily clean clean-all test lint typecheck
 
 # Full pipeline. PDF is a separate target: it needs pandoc and weasyprint,
 # which are not Python dependencies, and `make pdf` fails if they are absent.
@@ -33,6 +33,14 @@ figures-volatility:
 # Verify committed results still match the config that produced them
 verify-results:
 	python scripts/verify_results_config.py
+
+# Fit and persist the serving artifact set (artifacts/latest)
+build-artifacts:
+	python scripts/build_artifacts.py
+
+# Run one daily live cycle against saved artifacts
+run-daily:
+	python scripts/run_daily.py
 
 # Generate figures from results
 figures:
