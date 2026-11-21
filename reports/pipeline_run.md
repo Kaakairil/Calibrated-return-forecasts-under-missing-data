@@ -40,12 +40,21 @@ Run date: 2026-11-12; direction grid rerun without class weighting 2026-11-13. M
 
 - **507 of 1,728 paired comparisons are significant after Holm correction**, but the effects are small and concentrated on the calibrator contrast: calibrated vs uncalibrated LightGBM differs by about 0.004 to 0.005 Brier. Missingness rate and mechanism (MCAR vs MAR) produce no meaningful degradation anywhere in the grid.
 
+## 2026-11-22 rerun (expanded grid, config-snapshot metadata)
+
+Full direction grid under the expanded 4-imputer / 3-mechanism config (`MCAR`, `MCAR-BLOCK`, `MAR` x 4 rates), `n_jobs=1`, ~290 min on the same machine. Outputs refreshed: 31,680 experiment rows + 154 baseline rows, 4,752 paired comparisons (1,307 significant after Holm; median significant Brier effect 0.0029), 5 figures regenerated.
+
+- Headline claims unchanged: naive Brier 0.2489 / ECE 0.0170; best cells (logistic regression + Platt) Brier 0.2488 / AUC 0.516; LGBM ECE 0.0407 → 0.0194 with Platt; LR ECE 0.0234 → 0.0199.
+- AUC span widened to 0.387–0.609; the extremes are drop-imputer cells whose small complete-case test sets are noisy. Grid median 0.510; 973 of 31,680 rows exceed AUC 0.55.
+- `run_metadata.json` now records `config_snapshot` + `grid_dimensions`; `scripts/verify_results_config.py` passes against the committed metrics for the first time.
+- Earlier-run notes kept above for the historical record: the 0.571/fold-13 permutation check and the class-weighting comparison refer to the 2026-11-13 run.
+
 ## Outputs produced
 
-- `results/metrics.csv` — 10.7 MB, 15,994 rows
-- `results/summary.csv` — 144 configuration summaries with mean/std/count
-- `results/statistical_tests.csv` — 1,728 paired Wilcoxon tests with Holm-adjusted p-values
-- `results/run_metadata.json` — download date and package versions
+- `results/metrics.csv` — 19.9 MB, 31,834 rows (2026-11-22 rerun; earlier runs: 15,994)
+- `results/summary.csv` — 288 configuration summaries with mean/std/count
+- `results/statistical_tests.csv` — 4,752 paired Wilcoxon tests with Holm-adjusted p-values
+- `results/run_metadata.json` — download date, package versions, config snapshot, grid dimensions
 - `results/figures/brier_vs_missingness.png`, `ece_vs_missingness.png`, `heatmap_calibration.png`, `reliability_0pct.png`, `reliability_30pct.png`
 
 ## Sanity check: shuffled labels
