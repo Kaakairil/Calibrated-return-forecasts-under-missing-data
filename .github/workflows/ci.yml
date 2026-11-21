@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check src tests scripts
+
+      - name: Test
+        run: pytest -q
+
+      # Offline smoke test of the serving path: fit a tiny artifacts set on
+      # synthetic data and forecast one row. Exercises artifacts/serve/refit
+      # without any yfinance network call.
+      - name: Offline serve smoke test
+        run: python -c "
+          import numpy as np, pandas as pd, tempfile
+          from pathlib import Path
+          from calibmiss.artifacts import save_artifacts
+          from calibmiss.features import compute_features
+          from calibmiss.refit import fit_pipeline_artifacts
+          from calibmiss.serve import forecast_next_day, run_daily
+
+          rng = np.random.default_rng(0)
+          dates = pd.bdate_range('2023-01-02', periods=120)
+          idx = pd.MultiIndex.from_product([['T0'], dates], names=['ticker', 'date'])
+          close = 50 * np.exp(np.cumsum(rng.normal(0, 0.01, len(idx))))
+          raw = pd.DataFrame({
+              'open': close, 'high': close * 1.01, 'low': close * 0.99,
+              'close': close, 'adj_close': close,
+              'volume': rng.integers(1_000_000, 5_000_000, len(idx)).astype(float),
+          }, index=idx)
+          X, y = compute_features(raw)
+          X = X[~X.isna().any(axis=1)]
+          y = y.reindex(X.index)
+          artifacts = fit_pipeline_artifacts(X, y, model='logistic_regression', imputer='median', calibrator='platt')
+          save_artifacts(artifacts, Path(tempfile.mkdtemp()) / 'artifacts', {'config': {'experiment_file': 'experiment.yaml'}})
+          fc = forecast_next_day(artifacts, raw)
+          assert fc['p_cal'].between(0, 1).all()
+          run_daily(artifacts, raw, raw, log_dir=Path(tempfile.mkdtemp()) / 'pred')
+          print('serve smoke test OK')
+        "
