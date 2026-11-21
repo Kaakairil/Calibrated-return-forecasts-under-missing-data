@@ -158,41 +158,40 @@ model fitting with `run_experiment.py` via `fit_pipeline_artifacts`.
 
 ### 1. Fit and persist artifacts
 
-```python
-from pathlib import Path
-from calibmiss.features import compute_features
-from calibmiss.refit import fit_pipeline_artifacts
-from calibmiss.artifacts import save_artifacts, load_artifacts
-
-X, y = compute_features(raw)
-ready = X[~X.isna().any(axis=1)]          # drop incomplete warmup rows
-artifacts = fit_pipeline_artifacts(
-    ready, y.reindex(ready.index),
-    model="logistic_regression", imputer="median", calibrator="platt",
-    cal_frac=0.2,                           # last 20% held out for calibration
-)
-path = save_artifacts(artifacts, Path("artifacts/latest"), {
-    "config": {"experiment_file": "experiment.yaml"},
-})
-# Later, load with an expected-experiment guard:
-artifacts = load_artifacts(path, expected_experiment="experiment.yaml")
+```bash
+make build-artifacts
+# Or: python scripts/build_artifacts.py [--model logistic_regression]
+#     [--imputer median] [--calibrator platt] [--cal-frac 0.2]
 ```
 
-- Written as `{name}.joblib` files plus a `manifest.json` (artifact list, run
-  timestamp, config snapshot). Far later: embed the fit window
-  `(X.index min/max)` so a load can refuse stale fits.
-- `manifest.json` is *input* to refit policy decisions (see §3) — it records
-  when the artifacts were fit.
+Reads `data/processed/features.parquet` and `data/processed/target.parquet`
+(rebuild them with `make features`), fits imputer + model + calibrator via
+`fit_pipeline_artifacts`, and writes `{name}.joblib` files plus a
+`manifest.json` (artifact list, fit window, package versions, config snapshot)
+to `artifacts/latest/`.
+
+- Load later with an expected-experiment guard:
+  `load_artifacts(path, expected_experiment="experiment.yaml")`.
+- `manifest.json` records when the artifacts were fit; the refit schedule in
+  §3 uses that.
 
 ### 2. Daily forecast
 
-```python
-from calibmiss.data import download_incremental
-from calibmiss.serve import append_latest_rows, run_daily
-
-merged = append_latest_rows(raw, new_rows)          # merge today's rows (repo: tail-only)
-forecast = run_daily(artifacts, raw, merged, log_dir="predictions")
+```bash
+make run-daily
+# Or: python scripts/run_daily.py [--offline] [--raw-tail N] [--no-refit]
 ```
+
+One cycle against the saved artifacts: fetch only-new rows with
+`download_incremental` (tail-only), forecast the newest row of each ticker,
+append to the prediction log, then check the refit schedule (§3).
+
+| Flag | Effect |
+|---|---|
+| `--offline` | Skip the network fetch; forecast the cached raw tail only (used in CI) |
+| `--raw-tail N` | With `--offline`: use only the last N raw rows per ticker |
+| `--no-refit` | Skip the refit-schedule check |
+| `--artifacts-dir / --log-dir / --raw-dir` | Override default `artifacts/latest`, `predictions/`, `data/raw/` |
 
 `run_daily` writes:
 
@@ -201,11 +200,15 @@ forecast = run_daily(artifacts, raw, merged, log_dir="predictions")
 | `predictions/{latest_signal.csv}` | `ticker, date, p_raw, p_cal` for the newest row of each ticker |
 | `predictions/{predictions.csv}` | append-only log: `timestamp_utc, ticker, date, p_raw, p_cal, y_observed` (outcome back-filled later) |
 
-- `new_rows` are typically fetched with `download_incremental(tickers, last_date, end, cache_dir)`,
-  which fetches only the `(last_date, end]` tail and merges it into the cached parquet.
 - `append_latest_rows` de-duplicates on `(ticker, date)`, newest wins.
 - Realized outcomes are written back into the log with `record_observations(log_path, obs)`,
   matched by `(ticker, date)`. This is what makes drift monitoring possible.
+
+> **Known asymmetry:** the batch pipeline's `compute_features` drops zero-return
+> days when building the target, while `serve.latest_features` keeps them — a
+> zero-return day still gets a live forecast even though the batch experiment
+> never trains on one. Documented in `docs/ENHANCEMENT_PLAN.md`; harmonize only
+> if live predictions must match the batch distribution exactly.
 
 ### 3. Refit / recalibration schedule
 
