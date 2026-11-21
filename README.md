@@ -49,12 +49,15 @@ src/calibmiss/
 ├── data.py             # yfinance download, Parquet caching with SHA256 checksum, OHLCV validation
 ├── features.py         # Point-in-time features with lookahead safety (returns, volatility, volume ratio)
 ├── splits.py           # Walk-forward date-axis splits with chronological purge gaps
-├── missingness.py      # MCAR, MCAR-BLOCK (day-streak), and MAR injection (fit on train only)
+├── missingness.py      # MCAR, MCAR-BLOCK (day-streak), market-correlated block, MAR, and MNAR injection
 ├── imputers.py         # Causal forward-fill, training-median, MICE, and complete-case drop
 ├── models.py           # Standardized Logistic Regression and LightGBM probability classifiers
 ├── calibration.py      # Identity, Platt scaling, and Isotonic regression (fit on cal split only)
 ├── metrics.py          # Brier score, 10-bin ECE, ROC AUC, and reliability diagram series
 ├── pipeline.py         # Single (model, imputer, calibrator, mechanism, rate, seed) fold runner
+├── artifacts.py        # Joblib artifact serialization (save/load) with manifest checks
+├── serve.py            # Real-time entry point: next-day forecasts, prediction log, latest signal
+├── refit.py            # Refit policy (date/row-count), artifact fitting, drift reports
 └── run_experiment.py   # Full grid orchestrator, baselines, paired Wilcoxon tests, Holm correction
 ```
 
@@ -143,6 +146,117 @@ make all
    make clean      # Cleans processed features, metrics, and figures
    make clean-all  # Cleans all generated artifacts including cached raw data
    ```
+
+---
+
+## Live / Real-Time Usage
+
+The batch pipeline produces a **fitted artifact set**; the live path turns new
+data into next-day up-probabilities using the same point-in-time logic (no
+lookahead, train-only imputer, calibrator on a hold-out slice). It shares the
+model fitting with `run_experiment.py` via `fit_pipeline_artifacts`.
+
+### 1. Fit and persist artifacts
+
+```python
+from pathlib import Path
+from calibmiss.features import compute_features
+from calibmiss.refit import fit_pipeline_artifacts
+from calibmiss.artifacts import save_artifacts, load_artifacts
+
+X, y = compute_features(raw)
+ready = X[~X.isna().any(axis=1)]          # drop incomplete warmup rows
+artifacts = fit_pipeline_artifacts(
+    ready, y.reindex(ready.index),
+    model="logistic_regression", imputer="median", calibrator="platt",
+    cal_frac=0.2,                           # last 20% held out for calibration
+)
+path = save_artifacts(artifacts, Path("artifacts/latest"), {
+    "config": {"experiment_file": "experiment.yaml"},
+})
+# Later, load with an expected-experiment guard:
+artifacts = load_artifacts(path, expected_experiment="experiment.yaml")
+```
+
+- Written as `{name}.joblib` files plus a `manifest.json` (artifact list, run
+  timestamp, config snapshot). Far later: embed the fit window
+  `(X.index min/max)` so a load can refuse stale fits.
+- `manifest.json` is *input* to refit policy decisions (see §3) — it records
+  when the artifacts were fit.
+
+### 2. Daily forecast
+
+```python
+from calibmiss.data import download_incremental
+from calibmiss.serve import append_latest_rows, run_daily
+
+merged = append_latest_rows(raw, new_rows)          # merge today's rows (repo: tail-only)
+forecast = run_daily(artifacts, raw, merged, log_dir="predictions")
+```
+
+`run_daily` writes:
+
+| File | Schema / Content |
+|---|---|
+| `predictions/{latest_signal.csv}` | `ticker, date, p_raw, p_cal` for the newest row of each ticker |
+| `predictions/{predictions.csv}` | append-only log: `timestamp_utc, ticker, date, p_raw, p_cal, y_observed` (outcome back-filled later) |
+
+- `new_rows` are typically fetched with `download_incremental(tickers, last_date, end, cache_dir)`,
+  which fetches only the `(last_date, end]` tail and merges it into the cached parquet.
+- `append_latest_rows` de-duplicates on `(ticker, date)`, newest wins.
+- Realized outcomes are written back into the log with `record_observations(log_path, obs)`,
+  matched by `(ticker, date)`. This is what makes drift monitoring possible.
+
+### 3. Refit / recalibration schedule
+
+```python
+from datetime import UTC, datetime
+from calibmiss.refit import RefitPolicy, refit_on_schedule
+
+policies = [
+    RefitPolicy(artifact="model",      interval_days=30,  max_rows=10_000),
+    RefitPolicy(artifact="calibrator", interval_days=7,   max_rows=2_000),
+    RefitPolicy(artifact="imputer",    interval_days=90),
+]
+last_fit = {}   # persisted between runs; read back on startup
+rows_since = {} # rows accumulated per artifact since its last fit
+now = datetime.now(UTC)
+performed = refit_on_schedule(
+    policies, last_fit, rows_since, now,
+    events_path="predictions/refit_events.csv",
+    refit_func=lambda policy, now: fit_pipeline_artifacts(...),  # returns artifact key
+    config_fingerprint="experiment.yaml",                        # ties event to config
+)
+```
+
+- An artifact is due when it has **never been fit**, when `interval_days` have
+  elapsed, or when `max_rows` new rows have accumulated.
+- Every refit appends a row to `predictions/refit_events.csv`
+  (`timestamp_utc, artifact, window_start, window_end, n_rows, config_fingerprint`)
+  — an audit trail of what was retrained, when, and on which data.
+
+### 4. Drift monitoring
+
+```python
+from calibmiss.refit import drift_report
+drift_report("predictions/predictions.csv", window_days=90, output_dir="reports")
+```
+
+- Computes base rate, mean predicted probability, and 10-bin ECE over the last
+  `window_days` of *observed* rows; writes `reports/drift_YYYY-MM-DD.md`.
+- Interpretation rules: too few observations → inconclusive; `mean_p_cal` far
+  from the base rate or ECE > 0.05 → calibrator may be stale, consider a refit.
+
+### 5. Production config notes
+
+- Set `zero_volume_policy: "drop"` in `config/universe.yaml` so halted/no-trade
+  days (`volume == 0`) are excluded before feature computation; research runs
+  keep them (`"keep"`).
+- `run_metadata.json` records a `config_snapshot` and `grid_dimensions`;
+  `make verify-results` (`scripts/verify_results_config.py`) fails CI-style when
+  the committed `results/metrics.csv` no longer matches the grid that
+  `run_metadata.json` records — a machine-checkable guard against the
+  stale-results bug.
 
 ---
 
