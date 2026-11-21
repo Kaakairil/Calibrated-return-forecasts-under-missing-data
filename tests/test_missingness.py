@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+
 from calibmiss.missingness import (
     MARRuleConfig,
     inject_mar,

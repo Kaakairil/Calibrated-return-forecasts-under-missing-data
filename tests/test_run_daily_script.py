@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
 
 import run_daily as daily_script  # noqa: E402
+
 from calibmiss.refit import fit_pipeline_artifacts  # noqa: E402
 
 
