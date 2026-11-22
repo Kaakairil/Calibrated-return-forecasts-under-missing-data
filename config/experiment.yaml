@@ -33,6 +33,11 @@ experiment:
       params: {}
 
   missingness:
+    # Implemented in src/calibmiss/missingness.py but not yet in the committed
+    # grid runs: MCAR-BLOCK-MARKET (whole-market day blocks) and MNAR
+    # (masking driven by the feature values themselves). Adding either expands
+    # the grid by one mechanism slice (~5h at n_jobs=1); results in results/
+    # cover the three mechanisms listed below only.
     mechanisms: ["MCAR", "MCAR-BLOCK", "MAR"]
     rates: [0.0, 0.1, 0.2, 0.3]
     seeds: [42, 123, 456, 789, 999]
