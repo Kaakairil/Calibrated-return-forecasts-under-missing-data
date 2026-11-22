@@ -11,8 +11,8 @@
 | Plan | File | Scope |
 |---|---|---|
 | 7-issue review fixes | (plan-mode plan, issues 1–5) | Reviewer-flagged bugs: class_weight artifact, config cache, MAR threshold, dead config fields, survivorship note |
-| Real-time preparation | `docs/REAL_TIME_PREPARATION.md` | 10-step conversion from batch research repo to real-time-ready system |
-| Enhancement plan | `docs/ENHANCEMENT_PLAN.md` | 5 units completing the runnable live system + CI guard |
+| Real-time preparation | `docs/update/REAL_TIME_PREPARATION.md` | 10-step conversion from batch research repo to real-time-ready system |
+| Enhancement plan | `docs/update/ENHANCEMENT_PLAN.md` | 5 units completing the runnable live system + CI guard |
 
 ---
 
@@ -43,7 +43,7 @@
 
 ## 3. Enhancement plan — NOT YET IMPLEMENTED
 
-All five units of `docs/ENHANCEMENT_PLAN.md` are pending (this is the plan, not a gap):
+All five units of `docs/update/ENHANCEMENT_PLAN.md` are pending (this is the plan, not a gap):
 
 1. `scripts/build_artifacts.py` + test + Make target
 2. `scripts/run_daily.py` + test + Make target (with `--offline`)
@@ -78,7 +78,7 @@ story.**
   delete it if no longer referenced (prep doc said "check first").
 - `results_backup_pre_task8/` should be deleted once Step 8 lands and is verified.
 - The serve path does not drop zero-return days (batch target does) — documented as a
-  known asymmetry in `docs/ENHANCEMENT_PLAN.md`; no code change planned.
+  known asymmetry in `docs/update/ENHANCEMENT_PLAN.md`; no code change planned.
 
 ---
 

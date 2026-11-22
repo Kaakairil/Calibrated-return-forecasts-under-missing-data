@@ -1,7 +1,7 @@
 # CalibMiss Enhancement Plan — Runnable Live System & CI Guard
 
 > **Status:** Proposed 2026-11-22. This plan covers the small units that complete the
-> "real-time ready" story left open by `docs/REAL_TIME_PREPARATION.md` (Steps 1–7 and 9–10
+> "real-time ready" story left open by `docs/update/REAL_TIME_PREPARATION.md` (Steps 1–7 and 9–10
 > are done; Step 8, the full grid rerun, is running separately). Each item is a separate
 > unit with its own tests, its own commit, and user approval before each commit and push.
 

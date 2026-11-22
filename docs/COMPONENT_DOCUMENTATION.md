@@ -1052,4 +1052,4 @@ Each task depends on the previous task's interfaces. This documentation defines 
 
 *This documentation serves as the single source of truth for all component specifications. All implementation tasks should reference this document for interfaces, invariants, and expected behavior.*
 
-*Note: this living document tracks the current implementation. The audit-driven real-time preparation plan (incremental ingest, refit/drift, zero-volume policy, config-integrity guard) is captured in `docs/REAL_TIME_PREPARATION.md`; the serving/refit/artifacts sections above (§4.14–4.17) describe the shipped modules.*
+*Note: this living document tracks the current implementation. The audit-driven real-time preparation plan (incremental ingest, refit/drift, zero-volume policy, config-integrity guard) is captured in `docs/update/REAL_TIME_PREPARATION.md`; the serving/refit/artifacts sections above (§4.14–4.17) describe the shipped modules.*

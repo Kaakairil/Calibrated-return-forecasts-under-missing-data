@@ -23,7 +23,7 @@ From the full grids (see `reports/pipeline_run.md` for run logs and exact number
 
 - **The naive base rate is already hard to beat on next-day direction.** Predicting each fold's training up-day frequency scores Brier 0.2489 and ECE 0.0170. The best direction cell (logistic regression, median imputation, Platt scaling) reaches Brier 0.2488 and ROC AUC 0.516 — a difference inside the noise. An AUC near 0.5 is what efficient-market intuition predicts for next-day direction from lag-only price/volume features.
 
-- **Calibration fixes overconfident models; it does not improve predictions.** Uncalibrated LightGBM is the worst-calibrated cell (ECE 0.0407 on complete data); Platt brings it to 0.0194. For logistic regression, Platt improves ECE from 0.0234 to 0.0199 (~15%) while leaving ROC AUC unchanged. (An earlier `class_weight: "balanced"` run inflated these gains; the grid now runs unweighted.) Significant paired tests are ~0.004–0.005 Brier and are almost entirely calibrator contrasts.
+- **Calibration fixes overconfident models; it does not improve predictions.** Uncalibrated LightGBM is the worst-calibrated cell (ECE 0.0407 on complete data); Platt brings it to 0.0194. For logistic regression, Platt improves ECE from 0.0234 to 0.0199 (~15%) while leaving ROC AUC unchanged. (An earlier `class_weight: "balanced"` run inflated these gains; the grid now runs unweighted.) Significant paired tests have small Brier effects (median ~0.003, middle 50% ~0.002–0.003) and are almost entirely calibrator contrasts.
 
 - **Missingness is measured, not assumed, on three mechanisms.** The grid now simulates MCAR (cell-by-cell), **MCAR-BLOCK** (whole consecutive-day streaks per ticker — halts, API gaps, delist days), and MAR (conditional on volume ratio), each at 0/10/20/30%, together with a complete-case **drop** baseline alongside forward-fill, median, and MICE (now at `max_iter: 50`, converging). The flat direction curve is a property of the target's lack of signal, while the volatility grid isolates the real missingness effect.
 
@@ -207,7 +207,7 @@ append to the prediction log, then check the refit schedule (§3).
 > **Known asymmetry:** the batch pipeline's `compute_features` drops zero-return
 > days when building the target, while `serve.latest_features` keeps them — a
 > zero-return day still gets a live forecast even though the batch experiment
-> never trains on one. Documented in `docs/ENHANCEMENT_PLAN.md`; harmonize only
+> never trains on one. Documented in `docs/update/ENHANCEMENT_PLAN.md`; harmonize only
 > if live predictions must match the batch distribution exactly.
 
 ### 3. Refit / recalibration schedule
