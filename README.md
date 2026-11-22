@@ -8,12 +8,12 @@ CalibMiss is an empirical research pipeline evaluating whether probabilistic nex
 
 ## RQ1 Answer: Missingness Degrades Calibration Where Signal Exists
 
-The project's research question — *how does calibration degrade as missingness increases?* — is answerable on the **realized-volatility target**, not next-day direction. The volatility grid (realized 5-day volatility binarized at the training-fold median, 60-day purge; 22 folds × 5 seeds):
+The project's research question — *how does calibration degrade as missingness increases?* — is answerable on the **realized-volatility target**, not next-day direction. The volatility grid (realized 5-day volatility binarized at the training-fold median, 60-day purge; 22 folds × 5 seeds, MCAR / MCAR-BLOCK / MAR):
 
 - **Signal is real.** Models reach AUC ~0.73 versus persistence 0.67 and naive 0.50, so there is accuracy for missingness to damage.
-- **Degradation is measurable and monotone under MCAR.** From 0% to 30% missingness, ECE rises ~0.003 (0.0666 → 0.0700 for LightGBM) and AUC falls ~0.008. The effect is small but consistent in direction across seeds.
-- **Mechanism matters less than rate here.** MAR degrades less (nearly flat), consistent with a single-feature dependence on `volume_ratio`.
-- **Calibrators do not recover it.** LightGBM's probabilities are already well ranked; Platt adds distortion rather than removing it on this target.
+- **Degradation is measurable and monotone.** From 0% to 30% missingness (LightGBM, no calibrator): ECE rises 0.0666 → 0.0883 under MCAR (+0.022) and 0.0666 → 0.0822 under MCAR-BLOCK (+0.016), while AUC falls 0.728 → 0.709. Consistent in direction across seeds.
+- **Mechanism matters.** MAR degrades least (ECE +0.002, nearly flat), consistent with its single-feature dependence on `volume_ratio`; cell-wise MCAR hits calibration hardest, whole-day blocks cost more discrimination.
+- **Calibrators do not recover it.** The model's probabilities are already well ranked; Platt adds distortion rather than removing it on this target.
 
 Results in `results/volatility/`; run with `make experiment-volatility` / `make figures-volatility`.
 
