@@ -1,18 +1,192 @@
 {
   "download_date": "2026-11-11",
-  "generated_at_utc": "2026-11-12T18:57:27.288283+00:00",
+  "generated_at_utc": "2026-11-21T23:59:39.624057+00:00",
   "python_version": "3.12.6",
   "packages": {
     "numpy": "1.26.4",
     "pandas": "2.2.2",
     "scikit-learn": "1.5.0",
     "lightgbm": "4.3.0",
-    "yfinance": "1.8.0",
+    "yfinance": "0.2.40",
     "joblib": "1.4.2",
     "scipy": "1.17.1",
     "matplotlib": "3.8.4",
     "seaborn": "0.13.2",
     "pydantic": "2.7.4",
     "PyYAML": "6.0.1"
+  },
+  "config_snapshot": {
+    "universe": {
+      "tickers": [
+        "AAPL",
+        "MSFT",
+        "GOOGL",
+        "AMZN",
+        "NVDA",
+        "META",
+        "TSLA",
+        "BRK.B",
+        "JPM",
+        "JNJ",
+        "V",
+        "WMT",
+        "MA",
+        "PG",
+        "UNH",
+        "HD",
+        "CVX",
+        "MRK",
+        "ABBV",
+        "PEP",
+        "KO",
+        "COST",
+        "AVGO",
+        "TMO",
+        "ACN",
+        "DIS",
+        "ADBE",
+        "NKE",
+        "CRM",
+        "LIN"
+      ],
+      "start_date": "2010-01-01",
+      "end_date": "2024-12-31",
+      "source": "yfinance",
+      "zero_volume_policy": "keep"
+    },
+    "experiment": {
+      "models": [
+        {
+          "name": "logistic_regression",
+          "params": {
+            "C": 1.0,
+            "max_iter": 1000,
+            "class_weight": "balanced"
+          }
+        },
+        {
+          "name": "lightgbm",
+          "params": {
+            "n_estimators": 200,
+            "max_depth": 5,
+            "learning_rate": 0.05,
+            "num_leaves": 31,
+            "class_weight": "balanced",
+            "verbosity": -1
+          }
+        }
+      ],
+      "imputers": [
+        {
+          "name": "forward_fill",
+          "params": {}
+        },
+        {
+          "name": "median",
+          "params": {}
+        },
+        {
+          "name": "iterative",
+          "params": {
+            "max_iter": 50,
+            "random_state": 42
+          }
+        },
+        {
+          "name": "drop",
+          "params": {}
+        }
+      ],
+      "calibrators": [
+        {
+          "name": "none",
+          "params": {}
+        },
+        {
+          "name": "platt",
+          "params": {}
+        },
+        {
+          "name": "isotonic",
+          "params": {}
+        }
+      ],
+      "missingness": {
+        "mechanisms": [
+          "MCAR",
+          "MCAR-BLOCK",
+          "MAR"
+        ],
+        "rates": [
+          0.0,
+          0.1,
+          0.2,
+          0.3
+        ],
+        "seeds": [
+          42,
+          123,
+          456,
+          789,
+          999
+        ]
+      },
+      "splits": {
+        "train_years": 3,
+        "calibrate_months": 6,
+        "test_months": 6,
+        "roll_forward_months": 6,
+        "purge_days": 60
+      },
+      "evaluation": {
+        "n_bins_ece": 10,
+        "metrics": [
+          "brier",
+          "ece",
+          "roc_auc"
+        ]
+      },
+      "target": "volatility"
+    }
+  },
+  "grid_dimensions": {
+    "models": [
+      "logistic_regression",
+      "lightgbm"
+    ],
+    "imputers": [
+      "forward_fill",
+      "median",
+      "iterative",
+      "drop"
+    ],
+    "calibrators": [
+      "none",
+      "platt",
+      "isotonic"
+    ],
+    "mechanisms": [
+      "MCAR",
+      "MCAR-BLOCK",
+      "MAR"
+    ],
+    "rates": [
+      0.0,
+      0.1,
+      0.2,
+      0.3
+    ],
+    "seeds": [
+      42,
+      123,
+      456,
+      789,
+      999
+    ],
+    "n_mechanisms": 3,
+    "n_rates": 4,
+    "n_seeds": 5,
+    "experiment_file": "experiment_volatility.yaml",
+    "target": "volatility"
   }
 }
