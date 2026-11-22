@@ -100,7 +100,7 @@ The highest AUC in the grid, 0.609, occurs in one cell (fold 5, seed 999, logist
 
 The direction-grid results left RQ1 unanswered because ROC AUC ≈ 0.5 at every missingness level — the target had no signal for missingness to degrade. A second grid was run with a continuous target: the annualized standard deviation of daily log returns over the next five trading days (σ × √252, ddof=1). This target has known predictability (volatility clustering, persistence), which gives missingness something to damage. The grid uses the same 22 folds × 5 seeds × 144 configs = 15,840 experiment rows, with baselines for the naive training prevalence and a persistence forecast (today's realized volatility, mapped to a probability by its training-fold ECDF rank). The target is binarized at the training-fold median; calibration and metrics use the binary target. Because the label looks five days ahead, the volatility grid uses a 60-day purge between windows (the direction grid's 5-day purge does not clear a 5-day label window).
 
-**Results:** 16,016 rows written to `results/volatility/metrics.csv`. Figures in `results/volatility/figures/`.
+**Results:** 31,856 rows written to `results/volatility/metrics.csv` (rerun 2026-11-22 under the expanded 3-mechanism config; the first run had only MCAR and MAR). Figures in `results/volatility/figures/`.
 
 Signal is present and clearly above fold noise:
 
@@ -108,22 +108,22 @@ Signal is present and clearly above fold noise:
 |---|---|---|---|
 | Naive training base rate | 0.500 | 0.250 | 0.153 |
 | Persistence baseline | 0.673 | 0.225 | 0.124 |
-| Best experiment cell (LR, forward_fill, none, MAR, 30%) | 0.728 | — | 0.071 |
+| Best experiment cell (LR, forward_fill, none, MAR, 30%) | 0.729 | — | 0.071 |
 
-LightGBM and logistic regression both cluster around AUC 0.73 across the grid (mean 0.726 and 0.727). All models beat persistence by ~0.05 AUC, confirming real signal exists in this target.
+LightGBM and logistic regression both cluster around AUC 0.72–0.73 across the grid (mean 0.719 for both). All models beat persistence by ~0.05 AUC, confirming real signal exists in this target.
 
-**Missingness effects remain small but are now measurable.** LightGBM, no calibrator, all imputers and mechanisms:
+**Missingness degrades calibration, most under block missingness.** LightGBM, no calibrator, all imputers averaged:
 
-| Rate | ECE | Brier | AUC |
-|---:|---:|---:|---:|
-| 0% | 0.0666 | 0.1939 | 0.728 |
-| 10% | 0.0671 | 0.1949 | 0.726 |
-| 20% | 0.0682 | 0.1958 | 0.724 |
-| 30% | 0.0700 | 0.1970 | 0.720 |
+| Rate | ECE (MCAR) | ECE (MCAR-BLOCK) | ECE (MAR) | AUC (MCAR) |
+|---:|---:|---:|---:|---:|
+| 0% | 0.0666 | 0.0666 | 0.0666 | 0.728 |
+| 10% | 0.0683 | 0.0711 | 0.0671 | 0.724 |
+| 20% | 0.0752 | 0.0766 | 0.0672 | 0.718 |
+| 30% | 0.0883 | 0.0822 | 0.0687 | 0.709 |
 
-ECE rises by 0.0034 and AUC falls by 0.008 from 0% to 30% missingness (MCAR; the MAR curve is nearly flat). This is the direction-grid's flat-curve question answered with a target that has signal: degradation exists, is monotone under MCAR, but is small at these rates. Platt scaling does not recover it — ECE with Platt is slightly *higher* than without at every rate (0.0784 vs 0.0712 for the best cell), meaning the LightGBM probabilities are already well ranked and the calibrator adds distortion rather than removing it.
+From 0% to 30% missingness, ECE rises by 0.022 under MCAR and 0.016 under MCAR-BLOCK while AUC falls by 0.019 and 0.028; the MAR curve is nearly flat (ECE +0.002), consistent with its single-feature dependence on `volume_ratio`. This is the direction-grid's flat-curve question answered with a target that has signal: degradation is real, monotone, and mechanism-dependent — random cell-wise missingness hurts calibration most at equal rate, whole-day blocks cost more discrimination, and the volume-conditional pattern hurts least. This is the direction-grid's flat-curve question answered with a target that has signal: degradation is real, monotone, and mechanism-dependent — random cell-wise missingness hurts more than whole-day blocks at equal rate, and both hurt more than the volume-conditional pattern. Platt scaling does not recover it — ECE with Platt is *higher* than without at every rate (0.0785 vs 0.0711 for the best cell), meaning the model probabilities are already well ranked and the calibrator adds distortion rather than removing it.
 
-**Limitation:** the 0.003–0.008 effects are near the fold-noise floor with 22 folds; they are consistent in direction across seeds but not individually significant. A longer sample or more folds would sharpen the estimate.
+**Limitation:** these effects (0.01–0.03 ECE) are measured with 22 overlapping folds; they are consistent in direction across seeds, and the paired tests concentrate on the calibrator contrast (1,038 of 4,752 comparisons significant after Holm correction). A longer sample or more folds would sharpen the estimate.
 
 ## Discussion
 
