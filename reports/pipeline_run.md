@@ -49,6 +49,14 @@ Full direction grid under the expanded 4-imputer / 3-mechanism config (`MCAR`, `
 - `run_metadata.json` now records `config_snapshot` + `grid_dimensions`; `scripts/verify_results_config.py` passes against the committed metrics for the first time.
 - Earlier-run notes kept above for the historical record: the 0.571/fold-13 permutation check and the class-weighting comparison refer to the 2026-11-13 run.
 
+## 2026-11-22 volatility grid rerun (expanded config)
+
+Full volatility grid under the 3-mechanism config (`MCAR`, `MCAR-BLOCK`, `MAR`), `n_jobs=1`, ~372 min on the same machine. Outputs refreshed: 31,856 rows in `results/volatility/metrics.csv` (first run: 16,016, MCAR+MAR only), 4,752 paired comparisons (1,038 significant after Holm), 5 figures regenerated.
+
+- Signal claims unchanged: best cell AUC 0.729 (LR, forward_fill, none, MAR, 30%); persistence 0.673; naive 0.500; both models average AUC 0.719.
+- **Degradation revised upward.** The first run saw ECE 0.0666 → 0.0700 from 0% to 30% MCAR. The rerun measures 0.0666 → 0.0883 (+0.022) under MCAR and +0.016 under MCAR-BLOCK, with AUC falling 0.019 and 0.028 respectively; MAR stays nearly flat (+0.002). The first run's "small effect" summary was an artifact of its missing MCAR-BLOCK slice and lighter imputer set — treat the 2026-11-22 numbers as authoritative.
+- Platt still adds distortion rather than removing it on this target (best-cell ECE 0.0785 with vs 0.0711 without).
+
 ## Outputs produced
 
 - `results/metrics.csv` — 19.9 MB, 31,834 rows (2026-11-22 rerun; earlier runs: 15,994)
