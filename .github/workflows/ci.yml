@@ -26,6 +26,11 @@ jobs:
       - name: Test
         run: pytest -q
 
+      # The staleness guard: metrics.csv must match the grid dimensions
+      # recorded in run_metadata.json (config_snapshot + grid_dimensions).
+      - name: Verify results match recorded config
+        run: python scripts/verify_results_config.py
+
       # Offline smoke test of the serving path: fit a tiny artifacts set on
       # synthetic data and forecast one row. Exercises artifacts/serve/refit
       # without any yfinance network call.

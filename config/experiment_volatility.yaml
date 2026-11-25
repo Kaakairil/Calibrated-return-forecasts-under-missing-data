@@ -5,6 +5,9 @@ experiment:
       params:
         C: 1.0
         max_iter: 1000
+        # Deliberate drift from the direction grid (which runs unweighted):
+        # the volatility target is ~50/50 by construction, so balancing is
+        # near-neutral; results across the two grids are not model-comparable.
         class_weight: "balanced"
     - name: "lightgbm"
       params:
@@ -12,6 +15,9 @@ experiment:
         max_depth: 5
         learning_rate: 0.05
         num_leaves: 31
+        # Deliberate drift from the direction grid (which runs unweighted):
+        # the volatility target is ~50/50 by construction, so balancing is
+        # near-neutral; results across the two grids are not model-comparable.
         class_weight: "balanced"
         verbosity: -1
 
@@ -36,7 +42,10 @@ experiment:
       params: {}
 
   missingness:
-    mechanisms: ["MCAR", "MCAR-BLOCK", "MAR"]
+    # MCAR-BLOCK-MARKET: whole-market outage days shared across tickers.
+    # MNAR: masking driven by the feature's own value (volatility_20d via
+    # config/missingness.yaml). Both implemented in src/calibmiss/missingness.py.
+    mechanisms: ["MCAR", "MCAR-BLOCK", "MAR", "MNAR", "MCAR-BLOCK-MARKET"]
     rates: [0.0, 0.1, 0.2, 0.3]
     seeds: [42, 123, 456, 789, 999]
 
