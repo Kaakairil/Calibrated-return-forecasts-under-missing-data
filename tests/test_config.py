@@ -48,7 +48,7 @@ def test_load_experiment_config():
     assert "isotonic" in calibrator_names
 
     # Check missingness config
-    assert cfg.experiment.missingness.mechanisms == ["MCAR", "MCAR-BLOCK", "MAR"]
+    assert cfg.experiment.missingness.mechanisms == ["MCAR", "MCAR-BLOCK", "MAR", "MNAR", "MCAR-BLOCK-MARKET"]
     assert cfg.experiment.missingness.rates == [0.0, 0.1, 0.2, 0.3]
     assert cfg.experiment.missingness.seeds == [42, 123, 456, 789, 999]
 
