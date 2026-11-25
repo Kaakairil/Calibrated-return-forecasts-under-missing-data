@@ -117,6 +117,10 @@ def _persistence_row(
         "calibrator": "none",
         "mechanism": "none",
         "rate": 0.0,
+        # Persistence does not impute; sizes are the raw splits.
+        "n_train": int(len(split.train_idx)),
+        "n_cal": int(len(split.calibrate_idx)),
+        "n_test": int(len(split.test_idx)),
     }
 
 
@@ -147,6 +151,10 @@ def _baseline_rows(
             "calibrator": "none",
             "mechanism": "none",
             "rate": 0.0,
+            # Naive does not impute; sizes are the raw splits.
+            "n_train": int(len(split.train_idx)),
+            "n_cal": int(len(split.calibrate_idx)),
+            "n_test": int(len(split.test_idx)),
         }
     ]
     for model in cfg.experiment.models:

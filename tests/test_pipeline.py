@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-
 from calibmiss.pipeline import run_single_config
 
 
@@ -51,10 +50,31 @@ def test_zero_missingness_baseline_runs() -> None:
 def test_unknown_mechanism_is_rejected_even_at_zero_rate() -> None:
     X, y, train, cal, test = make_data()
     config = make_config(rate=0.0)
-    config["mechanism"] = "MNAR"
+    config["mechanism"] = "BOGUS"
 
-    with pytest.raises(ValueError, match="Unknown mechanism: MNAR"):
+    with pytest.raises(ValueError, match="Unknown mechanism: BOGUS"):
         run_single_config(X, y, train, cal, test, config)
+
+
+def test_mnar_dispatches_through_pipeline() -> None:
+    """MNAR must be runnable end-to-end, not library-only."""
+    # make_data has volatility_20d/volume_ratio, the configured rule columns.
+    X, y, train, cal, test = make_data()
+    config = make_config()
+    config["mechanism"] = "MNAR"
+    result = run_single_config(X, y, train, cal, test, config)
+    assert np.isfinite(result["brier"])
+    assert result["mechanism"] == "MNAR"
+
+
+def test_market_block_dispatches_through_pipeline() -> None:
+    """MCAR-BLOCK-MARKET must be runnable end-to-end, not library-only."""
+    X, y, train, cal, test = _ticker_data()
+    config = make_config()
+    config["mechanism"] = "MCAR-BLOCK-MARKET"
+    result = run_single_config(X, y, train, cal, test, config)
+    assert np.isfinite(result["brier"])
+    assert result["mechanism"] == "MCAR-BLOCK-MARKET"
 
 
 def test_mar_missingness_uses_configured_rule() -> None:
@@ -159,3 +179,26 @@ def test_drop_imputer_drops_incomplete_rows() -> None:
 
     assert np.isfinite(result["brier"])
     assert result["imputer"] == "drop"
+
+
+def test_split_sizes_recorded_and_drop_shrinks_eval_set() -> None:
+    """Metrics rows must record post-imputation split sizes.
+
+    `drop` removes incomplete rows from the eval splits, so its n_test is
+    strictly smaller than the raw split — without the column, that selection
+    was invisible in metrics.csv.
+    """
+    X, y, train, cal, test = _ticker_data()
+
+    median = run_single_config(X, y, train, cal, test, make_config())
+    assert {"n_train", "n_cal", "n_test"} <= median.keys()
+    assert median["n_train"] == len(train)
+    assert median["n_cal"] == len(cal)
+    assert median["n_test"] == len(test)
+
+    config = make_config()
+    config["imputer"] = "drop"
+    config["imputer_params"] = {}
+    dropped = run_single_config(X, y, train, cal, test, config)
+    assert 0 < dropped["n_test"] < len(test)
+    assert 0 < dropped["n_cal"] < len(cal)

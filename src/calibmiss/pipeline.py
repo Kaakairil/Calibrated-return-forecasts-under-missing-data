@@ -16,6 +16,8 @@ from calibmiss.missingness import (
     inject_mar,
     inject_mcar,
     inject_mcar_block,
+    inject_mcar_block_market,
+    inject_mnar,
 )
 from calibmiss.models import get_model
 
@@ -38,7 +40,7 @@ def run_single_config(
     seed = int(config["seed"])
     mechanism = str(config["mechanism"])
     config_dir = Path(__file__).resolve().parents[2] / "config"
-    if mechanism not in ("MCAR", "MCAR-BLOCK", "MAR"):
+    if mechanism not in ("MCAR", "MCAR-BLOCK", "MAR", "MNAR", "MCAR-BLOCK-MARKET"):
         raise ValueError(f"Unknown mechanism: {mechanism}")
     experiment = (experiment_config or get_config(config_dir)).experiment
     if rate > 0:
@@ -50,6 +52,35 @@ def run_single_config(
             X_train, _ = inject_mcar_block(X_train, rate, seed)
             X_cal, _ = inject_mcar_block(X_cal, rate, seed + 1)
             X_test, _ = inject_mcar_block(X_test, rate, seed + 2)
+        elif mechanism == "MCAR-BLOCK-MARKET":
+            X_train, _ = inject_mcar_block_market(X_train, rate, seed)
+            X_cal, _ = inject_mcar_block_market(X_cal, rate, seed + 1)
+            X_test, _ = inject_mcar_block_market(X_test, rate, seed + 2)
+        elif mechanism == "MNAR":
+            rules = (
+                experiment_config.mar_rules
+                if experiment_config is not None and hasattr(experiment_config, "mar_rules")
+                else get_mar_rules(config_dir)
+            )
+            rule_cfg = rules.mar_rules[0]
+            X_train, _ = inject_mnar(
+                X_train, rate, seed, target_feature=rule_cfg.target_feature,
+                quantile_threshold=float(rule_cfg.params.get("quantile_threshold", 0.7)),
+                base_prob=float(rule_cfg.params.get("base_prob", 0.05)),
+                max_prob=float(rule_cfg.params.get("max_prob", 0.5)),
+            )
+            X_cal, _ = inject_mnar(
+                X_cal, rate, seed + 1, target_feature=rule_cfg.target_feature,
+                quantile_threshold=float(rule_cfg.params.get("quantile_threshold", 0.7)),
+                base_prob=float(rule_cfg.params.get("base_prob", 0.05)),
+                max_prob=float(rule_cfg.params.get("max_prob", 0.5)),
+            )
+            X_test, _ = inject_mnar(
+                X_test, rate, seed + 2, target_feature=rule_cfg.target_feature,
+                quantile_threshold=float(rule_cfg.params.get("quantile_threshold", 0.7)),
+                base_prob=float(rule_cfg.params.get("base_prob", 0.05)),
+                max_prob=float(rule_cfg.params.get("max_prob", 0.5)),
+            )
         elif mechanism == "MAR":
             rules = (
                 experiment_config.mar_rules
@@ -102,6 +133,13 @@ def run_single_config(
     y_cal = y_cal.reindex(X_cal.index)
     y_test = y_test.reindex(X_test.index)
 
+    # Post-imputation split sizes: imputers like drop remove incomplete rows,
+    # so the eval sets shrink to a selected subset. Recording the sizes makes
+    # that shrinkage visible in metrics.csv instead of silently lost.
+    n_train = int(len(X_train))
+    n_cal = int(len(X_cal))
+    n_test = int(len(X_test))
+
     model_params = config.get("model_params")
     if model_params is None:
         model_params = next(
@@ -130,4 +168,4 @@ def run_single_config(
         p_test_calibrated,
         n_bins=experiment.evaluation.n_bins_ece,
     )
-    return {**metrics, **config, "fold": 0}
+    return {**metrics, **config, "fold": 0, "n_train": n_train, "n_cal": n_cal, "n_test": n_test}
