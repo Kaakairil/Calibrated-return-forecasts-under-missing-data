@@ -1,18 +1,18 @@
 {
   "download_date": "2026-11-11",
-  "generated_at_utc": "2026-11-21T23:59:39.624057+00:00",
+  "generated_at_utc": "2026-11-25T11:22:48.990518+00:00",
   "python_version": "3.12.6",
   "packages": {
     "numpy": "1.26.4",
     "pandas": "2.2.2",
     "scikit-learn": "1.5.0",
     "lightgbm": "4.3.0",
-    "yfinance": "0.2.40",
+    "yfinance": "1.8.0",
     "joblib": "1.4.2",
     "scipy": "1.17.1",
     "matplotlib": "3.8.4",
     "seaborn": "0.13.2",
-    "pydantic": "2.7.4",
+    "pydantic": "2.14.4",
     "PyYAML": "6.0.1"
   },
   "config_snapshot": {
@@ -115,7 +115,9 @@
         "mechanisms": [
           "MCAR",
           "MCAR-BLOCK",
-          "MAR"
+          "MAR",
+          "MNAR",
+          "MCAR-BLOCK-MARKET"
         ],
         "rates": [
           0.0,
@@ -168,7 +170,9 @@
     "mechanisms": [
       "MCAR",
       "MCAR-BLOCK",
-      "MAR"
+      "MAR",
+      "MNAR",
+      "MCAR-BLOCK-MARKET"
     ],
     "rates": [
       0.0,
@@ -183,7 +187,7 @@
       789,
       999
     ],
-    "n_mechanisms": 3,
+    "n_mechanisms": 5,
     "n_rates": 4,
     "n_seeds": 5,
     "experiment_file": "experiment_volatility.yaml",
