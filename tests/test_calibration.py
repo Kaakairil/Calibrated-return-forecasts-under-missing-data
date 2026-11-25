@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-
 from calibmiss.calibration import (
     IsotonicCalibrator,
     NoCalibrator,

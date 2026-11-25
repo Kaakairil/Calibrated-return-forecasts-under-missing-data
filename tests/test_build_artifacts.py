@@ -13,7 +13,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
 
 import build_artifacts  # noqa: E402
-
 from calibmiss.artifacts import load_artifacts  # noqa: E402
 
 

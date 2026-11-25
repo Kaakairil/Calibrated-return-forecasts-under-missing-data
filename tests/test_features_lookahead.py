@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-
 from calibmiss.features import compute_features, compute_volatility_target
 
 

@@ -1,7 +1,6 @@
 """Tests for walk-forward splits with purge gap."""
 
 import pandas as pd
-
 from calibmiss.splits import SplitIndices, get_split_indices, walk_forward_splits
 
 

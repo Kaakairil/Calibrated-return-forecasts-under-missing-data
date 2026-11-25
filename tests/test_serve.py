@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-
 from calibmiss.artifacts import save_artifacts
 from calibmiss.calibration import get_calibrator
 from calibmiss.config import CalibratorConfig, ImputerConfig, ModelConfig

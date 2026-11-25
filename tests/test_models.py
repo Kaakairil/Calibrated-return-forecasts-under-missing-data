@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-
 from calibmiss.config import ModelConfig
 from calibmiss.models import LightGBMModel, LogisticRegressionModel, get_model
 
