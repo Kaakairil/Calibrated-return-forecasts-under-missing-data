@@ -57,13 +57,25 @@ Full volatility grid under the 3-mechanism config (`MCAR`, `MCAR-BLOCK`, `MAR`),
 - **Degradation revised upward.** The first run saw ECE 0.0666 → 0.0700 from 0% to 30% MCAR. The rerun measures 0.0666 → 0.0883 (+0.022) under MCAR and +0.016 under MCAR-BLOCK, with AUC falling 0.019 and 0.028 respectively; MAR stays nearly flat (+0.002). The first run's "small effect" summary was an artifact of its missing MCAR-BLOCK slice and lighter imputer set — treat the 2026-11-22 numbers as authoritative.
 - Platt still adds distortion rather than removing it on this target (best-cell ECE 0.0785 with vs 0.0711 without).
 
+## 2026-11-25 rerun (five-mechanism grids)
+
+Both grids rerun under the full five-mechanism config (`MCAR`, `MCAR-BLOCK`, `MAR`, `MNAR`, `MCAR-BLOCK-MARKET` x 4 rates), adding MNAR and market-correlated block missingness to the grid, with post-imputation split sizes (`n_train`/`n_cal`/`n_test`) now recorded in `metrics.csv`.
+
+- **Direction grid:** `n_jobs=8`, ~95 min. 52,954 rows in `results/metrics.csv` (52,800 experiment + 154 baseline), 7,920 paired comparisons (2,042 significant after Holm; median significant Brier effect 0.0055, middle 50% 0.0033–0.018), 5 figures regenerated. Headline claims unchanged: naive 0.2489/0.0170; LR Platt 0.0234 → 0.0199; LGBM none 0.0407 → Platt 0.0194; grid AUC median 0.510, 1,499 of 52,800 rows exceed 0.55. The two new mechanisms behave like the original three on this signal-free target (LR-median ECE at 30%: MAR 0.0231, MNAR 0.0235, MARKET 0.0230 vs MCAR 0.0219).
+- **Volatility grid:** `n_jobs=4`, ~181 min (two earlier attempts at `n_jobs` 8 and 6 crashed with worker `MemoryError` under Windows memory pressure; 4 workers completed cleanly). 52,976 rows in `results/volatility/metrics.csv` (52,800 experiment + 176 baseline), 7,920 paired comparisons (1,720 significant after Holm; median significant effect 0.0095), 5 figures regenerated. Signal unchanged: persistence 0.673, naive 0.500; models average AUC 0.717. Degradation at 30% (LightGBM, no calibrator): MCAR 0.0666 → 0.0883, MCAR-BLOCK → 0.0822, MCAR-BLOCK-MARKET → 0.0848, MNAR → 0.0746, MAR → 0.0687. Platt and isotonic both raise mean ECE on this target (LightGBM: 0.0721 none vs 0.0845 Platt vs 0.0804 isotonic). At 30% cell-wise MCAR the drop imputer keeps only ~116 of 1,884 test rows per fold (0.7⁸ survival across 8 features) versus ~1,320 under the row-wise mechanisms — the `n_test` column quantifies this selection.
+- `scripts/verify_results_config.py` passes for both results directories against their `run_metadata.json` grid dimensions.
+
 ## Outputs produced
 
-- `results/metrics.csv` — 19.9 MB, 31,834 rows (2026-11-22 rerun; earlier runs: 15,994)
-- `results/summary.csv` — 288 configuration summaries with mean/std/count
-- `results/statistical_tests.csv` — 4,752 paired Wilcoxon tests with Holm-adjusted p-values
+- `results/metrics.csv` — 52,954 rows (2026-11-25 five-mechanism rerun; earlier: 31,834 from 2026-11-22, 15,994 from 2026-11-13)
+- `results/summary.csv` — 480 configuration summaries with mean/std/count
+- `results/statistical_tests.csv` — 7,920 paired Wilcoxon tests with Holm-adjusted p-values
 - `results/run_metadata.json` — download date, package versions, config snapshot, grid dimensions
-- `results/figures/brier_vs_missingness.png`, `ece_vs_missingness.png`, `heatmap_calibration.png`, `reliability_0pct.png`, `reliability_30pct.png`
+- `results/volatility/metrics.csv` — 52,976 rows (2026-11-25 five-mechanism rerun; earlier: 31,856 from 2026-11-22, 16,016 from 2026-11-13)
+- `results/volatility/summary.csv` — 480 configuration summaries
+- `results/volatility/statistical_tests.csv` — 7,920 paired Wilcoxon tests
+- `results/volatility/run_metadata.json` — config snapshot + grid dimensions
+- `results/figures/` and `results/volatility/figures/` — 5 figures each: `brier_vs_missingness.png`, `ece_vs_missingness.png`, `heatmap_calibration.png`, `reliability_0pct.png`, `reliability_30pct.png`
 
 ## Sanity check: shuffled labels
 
